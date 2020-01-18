@@ -183,6 +183,10 @@ module Kitchen
         5
       end
 
+      default_config(:destroy_resource_group_retries) do |_config|
+        5
+      end
+
       def create(state)
         state = validate_state(state)
         deployment_parameters = {
@@ -524,6 +528,18 @@ module Kitchen
         end
       end
 
+      def delete_resource_group_async(resource_group_name)
+        retries = config[:delete_resource_group_retries]
+        begin
+          resource_management_client.resource_group.begin_delete(resource_group)
+        rescue Faraday::TimeoutError
+          info "Timed out while sending resource group deletion request for '#{resource_group_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
+        end
+      end
+
       def destroy(state)
         return if state[:server_id].nil?
         options = Kitchen::Driver::Credentials.new.azure_options_for_subscription(state[:subscription_id], state[:azure_environment])
@@ -548,7 +564,7 @@ module Kitchen
         info "Azure environment: #{state[:azure_environment]}"
         begin
           info "Destroying Resource Group: #{state[:azure_resource_group_name]}"
-          resource_management_client.resource_groups.begin_delete(state[:azure_resource_group_name])
+          delete_resource_group_async(state[:azure_resource_group_name])
           info "Destroy operation accepted and will continue in the background."
         rescue ::MsRestAzure::AzureOperationError => operation_error
           error operation_error.body
