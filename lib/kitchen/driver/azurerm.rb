@@ -525,7 +525,7 @@ module Kitchen
         begin
           resource_management_client.deployments.begin_create_or_update_async(resource_group, deployment_name, deployment)
         rescue Faraday::TimeoutError
-          info "Timed out while creating deployment '#{deployment_name}'. #{retries} retries left."
+          info "Timed out while sending deployment creation request for deployment '#{deployment_name}'. #{retries} retries left."
           raise if retries == 0
           retries -= 1
           retry
