@@ -18,6 +18,7 @@ module Kitchen
     #
     class Azurerm < Kitchen::Driver::Base
       attr_accessor :resource_management_client
+      attr_accessor :network_management_client
 
       default_config(:azure_resource_group_prefix) do |_config|
         "kitchen-"
@@ -171,23 +172,7 @@ module Kitchen
         10
       end
 
-      default_config(:create_resource_group_retries) do |_config|
-        5
-      end
-
-      default_config(:create_deployment_retries) do |_config|
-        5
-      end
-
-      default_config(:list_deployment_operations_retries) do |_config|
-        5
-      end
-
-      default_config(:deployment_state_check_retries) do |_config|
-        5
-      end
-
-      default_config(:delete_resource_group_retries) do |_config|
+      default_config(:azure_api_retries) do |_config|
         5
       end
 
@@ -293,17 +278,16 @@ module Kitchen
           end
         end
 
-        network_management_client = ::Azure::Network::Profiles::Latest::Mgmt::Client.new(options)
+        @network_management_client = ::Azure::Network::Profiles::Latest::Mgmt::Client.new(options)
 
         if config[:vnet_id] == "" || config[:public_ip]
           # Retrieve the public IP from the resource group:
-          result = network_management_client.public_ipaddresses.get(state[:azure_resource_group_name], "publicip")
+          result = get_public_ip(state[:azure_resource_group_name], "publicip")
           info "IP Address is: #{result.ip_address} [#{result.dns_settings.fqdn}]"
           state[:hostname] = result.ip_address
         else
           # Retrieve the internal IP from the resource group:
-          network_interfaces = ::Azure::Network::Profiles::Latest::Mgmt::NetworkInterfaces.new(network_management_client)
-          result = network_interfaces.get(state[:azure_resource_group_name], "nic")
+          result = get_network_interface(state[:azure_resource_group_name], "nic")
           info "IP Address is: #{result.ip_configurations[0].private_ipaddress}"
           state[:hostname] = result.ip_configurations[0].private_ipaddress
         end
@@ -464,7 +448,7 @@ module Kitchen
         until end_provisioning_state_reached
           list_outstanding_deployment_operations(resource_group, deployment_name)
           sleep config[:deployment_sleep]
-          deployment_provisioning_state = deployment_state(resource_group, deployment_name)
+          deployment_provisioning_state = get_deployment_state(resource_group, deployment_name)
           end_provisioning_state_reached = end_provisioning_states.split(",").include?(deployment_provisioning_state)
         end
         info "Resource Template deployment reached end state of '#{deployment_provisioning_state}'."
@@ -662,7 +646,7 @@ module Kitchen
       #
 
       def create_resource_group(resource_group_name, resource_group)
-        retries = config[:create_resource_group_retries]
+        retries = config[:azure_api_retries]
         begin
           resource_management_client.resource_groups.create_or_update(resource_group_name, resource_group)
         rescue Faraday::TimeoutError
@@ -674,7 +658,7 @@ module Kitchen
       end
 
       def create_deployment_async(resource_group, deployment_name, deployment)
-        retries = config[:create_deployment_retries]
+        retries = config[:azure_api_retries]
         begin
           resource_management_client.deployments.begin_create_or_update_async(resource_group, deployment_name, deployment)
         rescue Faraday::TimeoutError
@@ -685,8 +669,33 @@ module Kitchen
         end
       end
 
+      def get_public_ip(resource_group_name, public_ip_name)
+        retries = config[:azure_api_retries]
+        begin
+          network_management_client.public_ipaddresses.get(resource_group_name, public_ip_name)
+        rescue Faraday::TimeoutError
+          info "Timed out while fetching public ip '#{public_ip_name}' for resource group '#{resource_group_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
+        end
+      end
+
+      def get_network_interface(resource_group_name, network_interface_name)
+        retries = config[:azure_api_retries]
+        begin
+          network_interfaces = ::Azure::Network::Profiles::Latest::Mgmt::NetworkInterfaces.new(network_management_client)
+          network_interfaces.get(resource_group_name, network_interface_name)
+        rescue Faraday::TimeoutError
+          info "Timed out while fetching network interface '#{network_interface_name}' for resource group '#{resource_group_name}'.. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
+        end
+      end
+
       def list_deployment_operations(resource_group, deployment_name)
-        retries = config[:list_deployment_operations_retries]
+        retries = config[:azure_api_retries]
         begin
           resource_management_client.deployment_operations.list(resource_group, deployment_name)
         rescue Faraday::TimeoutError
@@ -697,21 +706,21 @@ module Kitchen
         end
       end
 
-      def deployment_state(resource_group, deployment_name)
-        retries = config[:deployment_state_check_retries]
+      def get_deployment_state(resource_group, deployment_name)
+        retries = config[:azure_api_retries]
         begin
           deployments = resource_management_client.deployments.get(resource_group, deployment_name)
+          deployments.properties.provisioning_state
         rescue Faraday::TimeoutError
           info "Timed out while retrieving state for deployment '#{deployment_name}'. #{retries} retries left."
           raise if retries == 0
           retries -= 1
           retry
         end
-        deployments.properties.provisioning_state
       end
 
       def delete_resource_group_async(resource_group_name)
-        retries = config[:delete_resource_group_retries]
+        retries = config[:azure_api_retries]
         begin
           resource_management_client.resource_groups.begin_delete(resource_group_name)
         rescue Faraday::TimeoutError
