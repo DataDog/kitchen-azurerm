@@ -171,6 +171,10 @@ module Kitchen
         10
       end
 
+      default_config(:create_resource_group_retries) do |_config|
+        5
+      end
+
       default_config(:create_deployment_retries) do |_config|
         5
       end
@@ -253,7 +257,7 @@ module Kitchen
         resource_group.tags = config[:resource_group_tags]
         begin
           info "Creating Resource Group: #{state[:azure_resource_group_name]}"
-          resource_management_client.resource_groups.create_or_update(state[:azure_resource_group_name], resource_group)
+          create_resource_group(state[:azure_resource_group_name], resource_group)
         rescue ::MsRestAzure::AzureOperationError => operation_error
           error operation_error.body
           raise operation_error
@@ -488,6 +492,18 @@ module Kitchen
           unless end_operation_state_reached
             info "Resource #{resource_type} '#{resource_name}' provisioning status is #{resource_provisioning_state}"
           end
+        end
+      end
+
+      def create_resource_group(resource_group_name, resource_group)
+        retries = config[:create_resource_group_retries]
+        begin
+          resource_management_client.resource_groups.create_or_update(resource_group_name, resource_group)
+        rescue Faraday::TimeoutError
+          info "Timed out while creating resource group '#{resource_group_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
         end
       end
 
