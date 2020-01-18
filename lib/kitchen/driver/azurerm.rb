@@ -9,6 +9,7 @@ require "fileutils"
 require "erb"
 require "ostruct"
 require "json"
+require "faraday"
 
 module Kitchen
   module Driver
@@ -168,6 +169,10 @@ module Kitchen
 
       default_config(:deployment_sleep) do |_config|
         10
+      end
+
+      default_config(:deployment_state_check_retries) do |_config|
+        5
       end
 
       def create(state)
@@ -475,7 +480,15 @@ module Kitchen
       end
 
       def deployment_state(resource_group, deployment_name)
-        deployments = resource_management_client.deployments.get(resource_group, deployment_name)
+        retries = config[:deployment_state_check_retries]
+        begin
+          deployments = resource_management_client.deployments.get(resource_group, deployment_name)
+        rescue Faraday::TimeoutError
+          info "Timed out while retrieving state for deployment '#{deployment_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
+        end
         deployments.properties.provisioning_state
       end
 
