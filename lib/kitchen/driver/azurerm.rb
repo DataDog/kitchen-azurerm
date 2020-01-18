@@ -175,6 +175,10 @@ module Kitchen
         5
       end
 
+      default_config(:list_deployment_operations_retries) do |_config|
+        5
+      end
+
       default_config(:deployment_state_check_retries) do |_config|
         5
       end
@@ -460,7 +464,7 @@ module Kitchen
       end
 
       def show_failed_operations(resource_group, deployment_name)
-        failed_operations = resource_management_client.deployment_operations.list(resource_group, deployment_name)
+        failed_operations = list_deployment_operations(resource_group, deployment_name)
         failed_operations.each do |val|
           resource_code = val.properties.status_code
           raise val.properties.status_message.inspect.to_s if resource_code != "OK"
@@ -469,7 +473,7 @@ module Kitchen
 
       def list_outstanding_deployment_operations(resource_group, deployment_name)
         end_operation_states = "Failed,Succeeded"
-        deployment_operations = resource_management_client.deployment_operations.list(resource_group, deployment_name)
+        deployment_operations = list_deployment_operations(resource_group, deployment_name)
         deployment_operations.each do |val|
           resource_provisioning_state = val.properties.provisioning_state
           unless val.properties.target_resource.nil?
@@ -502,6 +506,18 @@ module Kitchen
           resource_management_client.deployments.begin_create_or_update_async(resource_group, deployment_name, deployment)
         rescue Faraday::TimeoutError
           info "Timed out while creating deployment '#{deployment_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
+        end
+      end
+
+      def list_deployment_operations(resource_group, deployment_name)
+        retries = config[:list_deployment_operations_retries]
+        begin
+          resource_management_client.deployment_operations.list(resource_group, deployment_name)
+        rescue Faraday::TimeoutError
+          info "Timed out while listing deployment operations for deployment '#{deployment_name}'. #{retries} retries left."
           raise if retries == 0
           retries -= 1
           retry
