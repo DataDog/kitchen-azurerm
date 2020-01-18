@@ -187,7 +187,7 @@ module Kitchen
         5
       end
 
-      default_config(:destroy_resource_group_retries) do |_config|
+      default_config(:delete_resource_group_retries) do |_config|
         5
       end
 
@@ -495,67 +495,6 @@ module Kitchen
         end
       end
 
-      def create_resource_group(resource_group_name, resource_group)
-        retries = config[:create_resource_group_retries]
-        begin
-          resource_management_client.resource_groups.create_or_update(resource_group_name, resource_group)
-        rescue Faraday::TimeoutError
-          info "Timed out while creating resource group '#{resource_group_name}'. #{retries} retries left."
-          raise if retries == 0
-          retries -= 1
-          retry
-        end
-      end
-
-      def deployment_state(resource_group, deployment_name)
-        retries = config[:deployment_state_check_retries]
-        begin
-          deployments = resource_management_client.deployments.get(resource_group, deployment_name)
-        rescue Faraday::TimeoutError
-          info "Timed out while retrieving state for deployment '#{deployment_name}'. #{retries} retries left."
-          raise if retries == 0
-          retries -= 1
-          retry
-        end
-        deployments.properties.provisioning_state
-      end
-
-      def create_deployment_async(resource_group, deployment_name, deployment)
-        retries = config[:create_deployment_retries]
-        begin
-          resource_management_client.deployments.begin_create_or_update_async(resource_group, deployment_name, deployment)
-        rescue Faraday::TimeoutError
-          info "Timed out while sending deployment creation request for deployment '#{deployment_name}'. #{retries} retries left."
-          raise if retries == 0
-          retries -= 1
-          retry
-        end
-      end
-
-      def list_deployment_operations(resource_group, deployment_name)
-        retries = config[:list_deployment_operations_retries]
-        begin
-          resource_management_client.deployment_operations.list(resource_group, deployment_name)
-        rescue Faraday::TimeoutError
-          info "Timed out while listing deployment operations for deployment '#{deployment_name}'. #{retries} retries left."
-          raise if retries == 0
-          retries -= 1
-          retry
-        end
-      end
-
-      def delete_resource_group_async(resource_group_name)
-        retries = config[:delete_resource_group_retries]
-        begin
-          resource_management_client.resource_group.begin_delete(resource_group)
-        rescue Faraday::TimeoutError
-          info "Timed out while sending resource group deletion request for '#{resource_group_name}'. #{retries} retries left."
-          raise if retries == 0
-          retries -= 1
-          retry
-        end
-      end
-
       def destroy(state)
         return if state[:server_id].nil?
         options = Kitchen::Driver::Credentials.new.azure_options_for_subscription(state[:subscription_id], state[:azure_environment])
@@ -715,6 +654,71 @@ module Kitchen
           else
             Base64.strict_encode64(config[:custom_data])
           end
+        end
+      end
+
+      #
+      # Wrapper methods for the Azure API calls to retry the calls when getting timeouts.
+      #
+
+      def create_resource_group(resource_group_name, resource_group)
+        retries = config[:create_resource_group_retries]
+        begin
+          resource_management_client.resource_groups.create_or_update(resource_group_name, resource_group)
+        rescue Faraday::TimeoutError
+          info "Timed out while creating resource group '#{resource_group_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
+        end
+      end
+
+      def create_deployment_async(resource_group, deployment_name, deployment)
+        retries = config[:create_deployment_retries]
+        begin
+          resource_management_client.deployments.begin_create_or_update_async(resource_group, deployment_name, deployment)
+        rescue Faraday::TimeoutError
+          info "Timed out while sending deployment creation request for deployment '#{deployment_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
+        end
+      end
+
+      def list_deployment_operations(resource_group, deployment_name)
+        retries = config[:list_deployment_operations_retries]
+        begin
+          resource_management_client.deployment_operations.list(resource_group, deployment_name)
+        rescue Faraday::TimeoutError
+          info "Timed out while listing deployment operations for deployment '#{deployment_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
+        end
+      end
+
+      def deployment_state(resource_group, deployment_name)
+        retries = config[:deployment_state_check_retries]
+        begin
+          deployments = resource_management_client.deployments.get(resource_group, deployment_name)
+        rescue Faraday::TimeoutError
+          info "Timed out while retrieving state for deployment '#{deployment_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
+        end
+        deployments.properties.provisioning_state
+      end
+
+      def delete_resource_group_async(resource_group_name)
+        retries = config[:delete_resource_group_retries]
+        begin
+          resource_management_client.resource_groups.begin_delete(resource_group_name)
+        rescue Faraday::TimeoutError
+          info "Timed out while sending resource group deletion request for '#{resource_group_name}'. #{retries} retries left."
+          raise if retries == 0
+          retries -= 1
+          retry
         end
       end
     end
