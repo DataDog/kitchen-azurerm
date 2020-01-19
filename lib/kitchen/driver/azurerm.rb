@@ -641,6 +641,8 @@ module Kitchen
         end
       end
 
+      private
+
       #
       # Wrapper methods for the Azure API calls to retry the calls when getting timeouts.
       #
@@ -649,8 +651,8 @@ module Kitchen
         retries = config[:azure_api_retries]
         begin
           resource_management_client.resource_groups.create_or_update(resource_group_name, resource_group)
-        rescue Faraday::TimeoutError
-          info "Timed out while creating resource group '#{resource_group_name}'. #{retries} retries left."
+        rescue Faraday::TimeoutError, Faraday::ClientError => exception
+          send_exception_message(exception, "while creating resource group '#{resource_group_name}'. #{retries} retries left.")
           raise if retries == 0
           retries -= 1
           retry
@@ -661,8 +663,8 @@ module Kitchen
         retries = config[:azure_api_retries]
         begin
           resource_management_client.deployments.begin_create_or_update_async(resource_group, deployment_name, deployment)
-        rescue Faraday::TimeoutError
-          info "Timed out while sending deployment creation request for deployment '#{deployment_name}'. #{retries} retries left."
+        rescue Faraday::TimeoutError, Faraday::ClientError => exception
+          send_exception_message(exception, "while sending deployment creation request for deployment '#{deployment_name}'. #{retries} retries left.")
           raise if retries == 0
           retries -= 1
           retry
@@ -673,8 +675,8 @@ module Kitchen
         retries = config[:azure_api_retries]
         begin
           network_management_client.public_ipaddresses.get(resource_group_name, public_ip_name)
-        rescue Faraday::TimeoutError
-          info "Timed out while fetching public ip '#{public_ip_name}' for resource group '#{resource_group_name}'. #{retries} retries left."
+        rescue Faraday::TimeoutError, Faraday::ClientError => exception
+          send_exception_message(exception, "while fetching public ip '#{public_ip_name}' for resource group '#{resource_group_name}'. #{retries} retries left.")
           raise if retries == 0
           retries -= 1
           retry
@@ -686,8 +688,8 @@ module Kitchen
         begin
           network_interfaces = ::Azure::Network::Profiles::Latest::Mgmt::NetworkInterfaces.new(network_management_client)
           network_interfaces.get(resource_group_name, network_interface_name)
-        rescue Faraday::TimeoutError
-          info "Timed out while fetching network interface '#{network_interface_name}' for resource group '#{resource_group_name}'.. #{retries} retries left."
+        rescue Faraday::TimeoutError, Faraday::ClientError => exception
+          send_exception_message(exception, "while fetching network interface '#{network_interface_name}' for resource group '#{resource_group_name}'. #{retries} retries left.")
           raise if retries == 0
           retries -= 1
           retry
@@ -698,8 +700,8 @@ module Kitchen
         retries = config[:azure_api_retries]
         begin
           resource_management_client.deployment_operations.list(resource_group, deployment_name)
-        rescue Faraday::TimeoutError
-          info "Timed out while listing deployment operations for deployment '#{deployment_name}'. #{retries} retries left."
+        rescue Faraday::TimeoutError, Faraday::ClientError => exception
+          send_exception_message(exception, "while listing deployment operations for deployment '#{deployment_name}'. #{retries} retries left.")
           raise if retries == 0
           retries -= 1
           retry
@@ -711,8 +713,8 @@ module Kitchen
         begin
           deployments = resource_management_client.deployments.get(resource_group, deployment_name)
           deployments.properties.provisioning_state
-        rescue Faraday::TimeoutError
-          info "Timed out while retrieving state for deployment '#{deployment_name}'. #{retries} retries left."
+        rescue Faraday::TimeoutError, Faraday::ClientError => exception
+          send_exception_message(exception, "while retrieving state for deployment '#{deployment_name}'. #{retries} retries left.")
           raise if retries == 0
           retries -= 1
           retry
@@ -723,12 +725,25 @@ module Kitchen
         retries = config[:azure_api_retries]
         begin
           resource_management_client.resource_groups.begin_delete(resource_group_name)
-        rescue Faraday::TimeoutError
-          info "Timed out while sending resource group deletion request for '#{resource_group_name}'. #{retries} retries left."
+        rescue Faraday::TimeoutError, Faraday::ClientError => exception
+          send_exception_message(exception, "while sending resource group deletion request for '#{resource_group_name}'. #{retries} retries left.")
           raise if retries == 0
           retries -= 1
           retry
         end
+      end
+
+      def send_exception_message(exception, message)
+        if exception.is_a?(Faraday::TimeoutError)
+          header = "Timed out"
+        elsif exception.is_a?(Faraday::ClientError)
+          header = "Connection reset by peer"
+        else
+          # Unhandled exception, return early
+          info "Unrecognized exception type."
+          return
+        end
+        info "#{header} #{message}"
       end
     end
   end
